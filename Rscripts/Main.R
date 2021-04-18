@@ -6,6 +6,7 @@ library(funtimes )
 library(aricode )
 library(mcclust )
 library(caret)
+library(clue)
 set.seed(1)
 options(scipen = 999)
 
@@ -23,7 +24,7 @@ catalog <- rbind(catalog,data.frame(line = nrow(catalog)+1, name= name,rnumer = 
 
 }
 
-performancelist <- data.frame()
+
 
 
 
@@ -33,34 +34,26 @@ performancelist <- data.frame()
 classmatcher <- function(target,pred){
   
   
-  conf <- table(pred,target)
+  confmatrix <- table(target,pred)
   
-  confrates <- as.data.frame.matrix(conf/rowSums(conf))
-  confratestarget <- sweep(conf,2,colSums(conf),`/`)
-  confrates <- confratestarget+confrates
-  
-  map <- data.frame()
-  
-  for(i in 1:nrow(conf)){
-    
-    map <- rbind(map,data.frame(line = i, target =names(which.max(conf[i,])), pred= rownames(conf)[i],prob = max(confrates[i,]),lengt = max(conf[i,]) ))
-    
-    
-  }
+  confmatrix <- cbind(confmatrix,matrix(0,ncol=nrow(confmatrix)-ncol(confmatrix)  ,nrow = nrow(confmatrix) ))
   
   
+  df.res = solve_LSAP(confmatrix, maximum = T)
   
-  res <- left_join(data.frame(pred = as.factor(pred)),map)
+  map <- cbind(rownames(confmatrix), colnames(confmatrix)[df.res])
+  colnames(map) <- c("target","pred")
+  
+  res <- left_join(data.frame(pred = as.character(pred)),map,copy=T)
   
   factor(as.character(res$target))
-  
 }
 
 
 ## calculates nearest cluster 
 findclus <- function(x) { x %>% as.numeric() %>% sweep(cent[, -1], 1, . , "-", check.margin = FALSE) %>% .^2 %>% rowSums() %>% which.min() %>% cent[.,1] }
 
-
+performancelist <- data.frame()
 
 #########################  
 
@@ -69,7 +62,10 @@ for(line in 1:nrow(catalog)){
 
 data = readARFF(paste(".\\datasets\\artificial\\",catalog[line,"name"],sep = ""))
 
-
+## data shuffling two times
+data <- data[sample(nrow(data)),]
+data <- data[sample(nrow(data)),]
+data <- data[sample(nrow(data)),]
 data <- data[sample(nrow(data)),]
 
 rownames(data) <- NULL
@@ -86,7 +82,9 @@ datacluster <- factor(data[,catalog[line,"cnumber"]])
 hc <- stats::hclust(dist(databody), method = "centroid")
 hc.class <- cutree(hc, k = catalog[line,"nclass"])
 hc.real.class <- classmatcher(datacluster,hc.class)
-levels(hc.real.class) <- levels(datacluster)
+all_class <- union(datacluster, hc.real.class)
+hc.real.class.table <- table(factor(datacluster, all_class), factor(hc.real.class, all_class))
+
 
 
 
@@ -98,6 +96,7 @@ datasmote <- data[,-catalog[line,"cnumber"]]
 lastnrow <- nrow(datasmote) + 1
 group <- data.frame()
 grouplength <- 100
+# Chosing big clusters to smote and defining little groups with a limit
 minclasslimit <- round(grouplength/ifelse(catalog[line,"nclass"]<4,4,catalog[line,"nclass"]))
 
 
@@ -151,14 +150,20 @@ cent <- aggregate(. ~ tag, datasmote, mean)
 #finds nearest cluster center
 hc.smote.class <-  as.vector(apply(databody, 1, findclus ))
 hc.smote.real.class <- classmatcher(datacluster,hc.smote.class)
-levels(hc.smote.real.class) <- levels(datacluster)
+all_class <- union(datacluster, hc.smote.real.class)
+hc.smote.real.class.table <- table(factor(datacluster, all_class), factor(hc.smote.real.class, all_class))
+
+
+
+results <- cbind(databody, target = datacluster, pred = hc.smote.class)
+
 
 
 
 # Performances
 
-CM.hc <- caret::confusionMatrix(data = datacluster, hc.real.class)
-CM.smote.hc <- caret::confusionMatrix(data = datacluster, hc.smote.real.class)
+CM.hc <- caret::confusionMatrix(hc.real.class.table)
+CM.smote.hc <- caret::confusionMatrix(hc.smote.real.class.table)
 
 
 #cent.real <- aggregate(databody,data.frame(datacluster), mean)
@@ -229,11 +234,16 @@ with(databody, plot(databody, col=hc.smote.real.class,xlab="Smoted Hiearchical")
 
 writexl::write_xlsx(performancelist,"performancelist.xlsx")
 
+mean(performancelist$accuracy.hc-performancelist$accuracy.hc.smote)
 
 
 
+## Performance Analysis
 
+library(corrplot)
 
+M <- cor(performancelist[,c(3:4,6:23)])
+corrplot(M, method = "circle")
 
 
 
