@@ -232,7 +232,7 @@ with(databody, plot(databody, col=hc.smote.real.class,xlab=paste("Smoted Hiearch
 }
 dev.off()
 
-memorylist <- rbind(memorylist,c(line,object.size(dist.basic)/1024/1024,object.size(dist.group)/1024/1024,as.numeric(timestartsmote-timestart), as.numeric(timeend-timestartsmote)-3))
+memorylist <- rbind(memorylist,c(line,object.size(dist.basic)/1024/1024,object.size(dist.group)/1024/1024,as.numeric(timestartsmote-timestart), as.numeric(timeend-timestartsmote)/3))
 
 }
 writexl::write_xlsx(memorylist,"memorylist.xlsx")
