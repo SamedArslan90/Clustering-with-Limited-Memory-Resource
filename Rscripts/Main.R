@@ -26,7 +26,7 @@ catalog <- rbind(catalog,data.frame(line = nrow(catalog)+1, name= name,rnumer = 
 
 
 
-
+catalog = catalog[catalog$cnumber!=4,]
 
 ## matches the fitted classes returns real classes
 
@@ -54,11 +54,13 @@ classmatcher <- function(target,pred){
 findclus <- function(x) { x %>% as.numeric() %>% sweep(cent[, -1], 1, . , "-", check.margin = FALSE) %>% .^2 %>% rowSums() %>% which.min() %>% cent[.,1] }
 
 performancelist <- data.frame()
+memorylist <- data.frame(line=as.numeric(),Hcbasememory=as.numeric(),HcbasememorySmote=as.numeric(),worktimehc =as.numeric(),worktimehcsmote =as.numeric())
 
 #########################  
 
-for(line in 1:nrow(catalog)){
+ for(line in 63:nrow(catalog)){
 
+ 
 
 data = readARFF(paste(".\\datasets\\artificial\\",catalog[line,"name"],sep = ""))
 
@@ -67,7 +69,7 @@ data <- data[sample(nrow(data)),]
 data <- data[sample(nrow(data)),]
 data <- data[sample(nrow(data)),]
 data <- data[sample(nrow(data)),]
-
+data <- data[sample(nrow(data)),]
 rownames(data) <- NULL
 
 
@@ -76,18 +78,24 @@ databody <- data[,-catalog[line,"cnumber"]]
 
 datacluster <- factor(data[,catalog[line,"cnumber"]])
 
-
+timestart <-  Sys.time()
 ## Basic clustering
-
-hc <- stats::hclust(dist(databody), method = "centroid")
+dist.basic <- dist(databody)
+hc <- stats::hclust(dist(dist.basic), method = "centroid")
 hc.class <- cutree(hc, k = catalog[line,"nclass"])
 hc.real.class <- classmatcher(datacluster,hc.class)
 all_class <- union(datacluster, hc.real.class)
 hc.real.class.table <- table(factor(datacluster, all_class), factor(hc.real.class, all_class))
 
+jpeg(paste0('plots\\',catalog[line,"line"],'.jpg'),width=650,height=1080)
+par(mfrow=c(5,1))
 
+with(databody, plot(databody, col=datacluster,xlab="Base",ylab="",main=paste("Number :" ,catalog[line,"line"] ,"  Data :",as.character(catalog[line,"name"]))))
+with(databody, plot(databody, col=hc.real.class,xlab="Hiearchical",ylab=""))
 
+timestartsmote <-  Sys.time()
 
+for (grouplength in c(50,100,200)){
 
 # Clustering with SMOTE
 
@@ -95,7 +103,7 @@ datasmote <- data[,-catalog[line,"cnumber"]]
 
 lastnrow <- nrow(datasmote) + 1
 group <- data.frame()
-grouplength <- 100
+
 # Chosing big clusters to smote and defining little groups with a limit
 minclasslimit <- round(grouplength/ifelse(catalog[line,"nclass"]<4,4,catalog[line,"nclass"]))
 
@@ -104,8 +112,8 @@ while (nrow(datasmote) > grouplength & nrow(datasmote)/lastnrow < 1.1 & sum(is.n
   
   group <- datasmote[1:grouplength,]
   
-  
-  hc <- stats::hclust(dist(group), method = "centroid")
+  dist.group = dist(group)
+  hc <- stats::hclust(dist.group, method = "centroid")
   group$tag <- cutree(hc, k = catalog[line,"nclass"])
   
   
@@ -116,7 +124,7 @@ while (nrow(datasmote) > grouplength & nrow(datasmote)/lastnrow < 1.1 & sum(is.n
   if (length(unique(smotedata$tag)) > 1) {
     
     tryCatch({
-    aftersmote <- DMwR::SMOTE(tag ~ ., smotedata, perc.over = 25)} , error = function(e) aftersmote <- smotedata)
+    aftersmote <- DMwR::SMOTE(tag ~ ., smotedata, perc.over = 20)} , error = function(e) aftersmote <- smotedata)
     colnames(aftersmote) <- colnames(group)
     
     # table(aftersmote$tag)
@@ -133,11 +141,11 @@ while (nrow(datasmote) > grouplength & nrow(datasmote)/lastnrow < 1.1 & sum(is.n
   lastnrow <- nrow(datasmote)
   
   datasmote <- data.frame(rbind(datasmote[(grouplength+1):nrow(datasmote),],smoteoutput))
-  
+  print(nrow(datasmote))
   rownames(datasmote) <- NULL
 }
 
-
+timeend <- Sys.time()
 ############ Last clustering
 
 hc <- stats::hclust(dist(datasmote), method = "centroid")
@@ -180,7 +188,7 @@ distincemat <- dist(databody)
 
 tryCatch({
 performancelist <- rbind(performancelist,
-data.frame(catalog[line,],
+data.frame(catalog[line,], batchsize = grouplength,
            
            #mse.hc.center = mse.hc.center,
            #mse.hc.smote.center=mse.hc.smote.center,
@@ -215,22 +223,21 @@ data.frame(catalog[line,],
 
 
 
-if(catalog[line,"cnumber"]<4){
-jpeg(paste0('plots\\',catalog[line,"line"],'.jpg'))
-par(mfrow=c(3,1))
 
-with(databody, plot(databody, col=datacluster,xlab="Base1",main=paste("Number :" ,catalog[line,"line"] ,"  Data :",as.character(catalog[line,"name"]))))
-with(databody, plot(databody, col=hc.real.class,xlab="Hiearchical"))
-with(databody, plot(databody, col=hc.smote.real.class,xlab="Smoted Hiearchical"))
+with(databody, plot(databody, col=hc.smote.real.class,xlab=paste("Smoted Hiearchical","Batchsize = ",grouplength),ylab=""))
 
- dev.off()
-}
 
- saveRDS(performancelist,"performancelist.rds")
+
 
 }
+dev.off()
 
+memorylist <- rbind(memorylist,c(line,object.size(dist.basic)/1024/1024,object.size(dist.group)/1024/1024,as.numeric(timestartsmote-timestart), as.numeric(timeend-timestartsmote)-3))
 
+}
+writexl::write_xlsx(memorylist,"memorylist.xlsx")
+
+saveRDS(performancelist,"performancelist.rds")
 
 writexl::write_xlsx(performancelist,"performancelist.xlsx")
 
@@ -242,7 +249,7 @@ mean(performancelist$accuracy.hc-performancelist$accuracy.hc.smote)
 
 library(corrplot)
 
-M <- cor(performancelist[,c(3:4,6:23)])
+M <- cor(performancelist[,c(3,6,8:24)])
 corrplot(M, method = "circle")
 
 
